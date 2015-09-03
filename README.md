@@ -2,7 +2,7 @@
 Foundations of Data Science Capstone Project - Analysis of Opening Weekend Grosses for Movies released in USA (2005 - 2014)
 
 #### Software/Tech Info
-Primarily R and APIs, but also some Python and SQL. The SQL also required hastily acquired knowledge of installing SQLObject ORM and installing and working with a SQLite database. The Python and SQL provided ultimately unnecessary for the purpose it was used for (see the section below on IMDbPy), but it was good practice.
+Primarily R and APIs, but also some Python and SQL. This also necessitated hastily acquired knowledge of installing SQLObject ORM and installing and working with a SQLite database. The Python and SQL proved ultimately unnecessary for the purpose it was used for (see the section below on IMDbPy), but it was good practice.
 
 #### Data sources
 
