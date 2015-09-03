@@ -62,3 +62,16 @@ The R code for this scrape turned out to be pretty simple and easy to put togeth
 - `BoxOffice`: $67.2M
 - `Production`: Paramount Pictures
 - `Website`: http://www.coachcartermovie.com/index2.html
+
+##### 3. YouTube Data API v3
+
+The purpose of using this API was to 1) see what kind of options are available in the API of a company as large as Google and 2) see how the API key process works in combination with the quotas and rate limits set by Google. 
+
+The data is queried in two steps:
+1. A general keyword search of the movie name + year released + the word "trailer" to get the top 5 relevant results with that combination of words, and
+2. A targeted query to get the number of views primarily, but also other datapoints like favoriteCount, likeCount, dislikeCount etc for each of the videos in the query results from step 1.
+
+This involved a fair amount of grappling with `gsub` and string-operations in R to get the searching string in this format `full+movie+name+yyyy+trailer` (for e.g. `edge+of+tomorrow+2014+trailer`), followed by setting up a developer account in Google and enabling the YouTube API, working with the fairly easy to use form-based documentation for the [general search](https://developers.google.com/youtube/v3/docs/search/list#try-it) and the [video stats](https://developers.google.com/youtube/v3/docs/videos/list#try-it) APIs, and some guesswork to get the R code going. See `youTube API.R` for more details.
+
+##### 4. OMDb API
+With the IMDb IDs provided in the 30K movies dataset, the [OMDb API](http://www.omdbapi.com) becomes a 
