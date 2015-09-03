@@ -82,6 +82,7 @@ This was by far the most painful, and ultimately, useless, for the purpose of th
 IMDb provides a subset of its entire database (and even that's a pretty big set of files). This [reddit comment](https://www.reddit.com/r/datasets/comments/246ycf/imdbrottentomatoes_data/ch4hujb) conveys my feelings about this dataset better than I can, but suffice it to say that it is a very long, laborious process that may not ultimately yield the data you need. But great for practice in all the technologies and software it required for processing.
 
 The process went as follows:
+
 1. Download [IMDbPy](http://imdbpy.sourceforge.net) and install via Terminal or appropriate command line
 2. Install an SQL ORM wrapper like [SQLObject](http://sqlobject.org)
 3. Install a database engine like SQLite (actually, don't use SQLite, since the IMDbPY documentation that I read too late, specifically says that IMDbPY doesn't do well with SQLite. It took over 35 hours to completely unpack and import the IMDB text file downloads. That is before I manually deleted several large text files I did not need, or it may very well have taken 48-60 hrs. 
@@ -96,3 +97,5 @@ Apparently using the IMDbPY files and scripts queries the website directly, givi
 #### 5. IMDB Data Scraper
 
 And finally, lacking any other way of getting movie financial data from IMDb, I wrote a scraper in R that collects the financial info for a pre-cleaned, pre-filtered dataset. Since this data isn't consistently available on IMDb, they have not designated very specific html/xml formatting for this data and as a result, the data still downloads as a chunk. Further `gsub` and `substring` magic is required to extract the 'Opening Weekend:', 'Gross:' and 'Budget:' numbers from the text chunk.
+
+See `IMDb scraper.R` for more info.
