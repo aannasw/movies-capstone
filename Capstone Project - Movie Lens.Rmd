@@ -1,0 +1,998 @@
+---
+title: "Capstone Project - Movie Lens Data Analysis"
+author: "Arti Annaswamy"
+output: pdf_document
+---
+
+# Load the packages ---------------------------------
+
+```{r}
+
+require(lubridate)
+require(plyr)
+require(dplyr)
+require(stringr)
+require(XML)
+require(RCurl)
+#install.packages("scrapeR")
+library(scrapeR)
+library(ggplot2)
+library(ggthemes)
+library(gridExtra)
+library(reshape2)
+```
+
+# Load up Movie Lens dataset and run transformations
+
+```{r}
+mov <- read.csv("./data/movielens/movies.csv")
+rat <- read.csv("./data/movielens/ratings.csv", stringsAsFactors = FALSE) #takes a while to run!
+rat$userId <- as.factor(rat$userId) #convert user ID to factor
+rat$movieId <- as.factor(rat$movieId) #convert movie ID to factor
+tags <- read.csv("./data/movielens/tags.csv")
+links <- read.csv("./data/movielens/links.csv")
+gen <- c('Action', 'Adventure', 'Animation', 'Children\'s', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror', 'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western', '(no genres listed)')
+
+# Extract list of genres to separate binary columns
+mov2 <- transform(mov, gAct = ifelse(grepl("Action", genres), 1, 0))
+mov2 <- transform(mov2, gAdv = ifelse(grepl("Adventure", genres), 1, 0))
+mov2 <- transform(mov2, gAnim = ifelse(grepl("Animation", genres), 1, 0))
+mov2 <- transform(mov2, gChi = ifelse(grepl("Children", genres), 1, 0))
+mov2 <- transform(mov2, gCom = ifelse(grepl("Comedy", genres), 1, 0))
+mov2 <- transform(mov2, gCri = ifelse(grepl("Crime", genres), 1, 0))
+mov2 <- transform(mov2, gDocu = ifelse(grepl("Documentary", genres), 1, 0))
+mov2 <- transform(mov2, gDra = ifelse(grepl("Drama", genres), 1, 0))
+mov2 <- transform(mov2, gFant = ifelse(grepl("Fantasy", genres), 1, 0))
+mov2 <- transform(mov2, gFno = ifelse(grepl("Film-Noir", genres), 1, 0))
+mov2 <- transform(mov2, gHor = ifelse(grepl("Horror", genres), 1, 0))
+mov2 <- transform(mov2, gMus = ifelse(grepl("Musical", genres), 1, 0))
+mov2 <- transform(mov2, gMys = ifelse(grepl("Mystery", genres), 1, 0))
+mov2 <- transform(mov2, gRom = ifelse(grepl("Romance", genres), 1, 0))
+mov2 <- transform(mov2, gSci = ifelse(grepl("Sci-Fi", genres), 1, 0))
+mov2 <- transform(mov2, gThr = ifelse(grepl("Thriller", genres), 1, 0))
+mov2 <- transform(mov2, gWar = ifelse(grepl("War", genres), 1, 0))
+mov2 <- transform(mov2, gWes = ifelse(grepl("Western", genres), 1, 0))
+mov2 <- transform(mov2, gNA = ifelse(grepl("no genres", genres), 1, 0))
+mov2 <- transform(mov2, gTotal = gAct + gAdv + gAnim + gChi + gCom + gCri + gDocu + gDra + gFant + gFno + gHor + gMus + gMys + gRom + gSci + gThr + gWar + gWes) 
+
+# Extract out year to a separate movieYear column
+trim.trailing <- function (x) sub("\\s+$", "", x) # remove trailing whitespace
+mov2$title <- trim.trailing(mov2$title)
+
+mov2$movieYear <- gsub('.+\\(([0-9]+)\\)*?$', '\\1', mov2$title)
+mov2$movieYear <- as.numeric(mov2$movieYear) # produces a few NAs
+
+# Merge with Links file
+mov2 <- merge(mov2, links, by = 'movieId')
+
+# Replace IMDB Id with correct format
+mov2$imdbId <- paste("tt",formatC(mov2$imdbId, width = 7, flag = '0'), sep = "")
+
+# Filter by 2005 - 2014 movies
+mov3 <- filter(mov2, movieYear >= 2005 & movieYear <= 2014)
+imdbList <- select(mov3, imdbId)
+
+# Sample imdbList data for experiments
+imdb_s <- sample_n(imdbList, size = 20)
+
+# Calculate mean and median MovieLens rating
+ratingMean <- rat %>% 
+  group_by(movieId) %>% 
+  summarise(ratingMean = mean(rating), nRat = n()) %>%
+  arrange(movieId)
+
+ratingMedian <- rat %>% 
+  group_by(movieId) %>% 
+  summarise(ratingMedian = median(rating)) %>% 
+  arrange(movieId)
+
+# Merge with mov3
+mov3 <- merge(mov3, ratingMean, by = "movieId")
+mov3 <- merge(mov3, ratingMedian, by = "movieId")
+
+movielens <- mov3
+
+rm(rat, links, mov, mov2, mov3, ratingMean, ratingMedian)
+```
+
+# Visualize
+
+```{r}
+
+ggplot(aes(x = ratingMean), data = movielens, stat = bin) + geom_histogram(binwdith = 0.1) +
+  facet_wrap(~ movieYear)
+
+```
+
+# Combine Youtube Search and Youtube stats
+
+```{r}
+
+vidDF <- read.csv("./outputs/vidDF.csv", stringsAsFactors = FALSE)
+vidViews <- read.csv("./outputs/vidViews.csv", stringsAsFactors = FALSE)
+
+str(vidDF)
+str(vidViews)
+
+# 14697 videos without the word 'trailer' - removed
+vidDF %>% 
+  filter(grepl("trailer", tolower(vidTitle)) != TRUE) %>% 
+  nrow()
+
+vidDF2 <- vidDF %>% 
+  filter(grepl("trailer", tolower(vidTitle)) == TRUE)
+
+# 1083 duplicates in vidViews
+vidViews <- unique(vidViews)
+vidViews <- rename(vidViews, vidID = itemID)
+summary(vidViews)
+filter(vidViews, vidID == 'hEJnMQG9ev8') # multiple captures for one video
+
+# Get the max of each ID to get the "latest" data
+
+vidViews3 <- vidViews %>% 
+  group_by(vidID) %>% 
+  summarise(viewCount = max(viewCount), likeCount = max(likeCount), dislikeCount = max(dislikeCount), favCount = max(favCount), commentCount = max(commentCount))
+filter(vidViews3, vidID == 'hEJnMQG9ev8')
+str(vidViews3)
+str(vidDF)
+
+# Merge into new dataset
+
+ytubeViews <- merge(vidDF2, vidViews3, by = "vidID")
+ytubeViews$vidDate <- ymd_hms(ytubeViews$vidDate)
+
+# Clean up variables
+
+rm(vidDF, vidDF2, vidViews, vidViews2, vidViews3)
+
+```
+
+# Explore main datasets
+
+```{r}
+
+omdbData <- read.csv("./outputs/omdbData.csv", stringsAsFactors = FALSE)
+omdbData <- rename(omdbData, imdbId = imdbID)
+
+# Create a youtube "search string" and attach column to omdbData
+
+ytubeString <- NULL
+for (i in 1:nrow(omdbData)) {
+  x <- paste(paste(strsplit(tolower(gsub("[[:punct:]]","",omdbData$Title[i]))," ")[[1]], collapse = "+"), tolower(omdbData$Year[i]),"trailer", sep = "+")
+  ytubeString <- rbind(ytubeString, x)
+}
+
+head(ytubeString)
+ytubeString <- as.vector(ytubeString)
+omdbData$searchString <- ytubeString
+
+str(omdbData)
+str(movielens)
+
+
+# Merge MovieLens data with OMDB scraped data
+mdata <- merge(movielens, omdbData, by = 'imdbId', all = TRUE)
+summary(mdata)
+mdata <- filter(mdata, is.na(ratingMean) != TRUE)
+mdata <- filter(mdata, is.na(tomatoUserReviews) != TRUE)
+
+# Remove unused variables
+rm(movielens, omdbData)
+summary(mdata)
+
+# Write important data files for backup
+write.csv(mdata, "combined_omdb_movielens.csv", row.names=FALSE)
+write.csv(ytubeViews, "ytubeViews.csv", row.names=FALSE)
+
+# Clean up mdata dataset
+
+mdata$Poster <- NULL
+mdata$tmdbId <- NULL
+mdata$Website <- NULL
+mdata$Response <- NULL
+mdata$Production <- NULL
+
+filter(mdata, Country == 'Japan')
+
+# Write important data files for backup
+write.csv(mdata_info, "mdata_info.csv", row.names=FALSE)
+write.csv(mdata, "mdata.csv", row.names=FALSE)
+write.csv(owfin3, "owfin3.csv", row.names=FALSE)
+
+str(mdata)
+
+# Filter mdata for > 2005 movies
+mdata_info <- select(mdata, imdbId, Title, Year, Rated, Released, Runtime, Director, Language, Country, Metascore, imdbRating, Type, tomatoMeter, tomatoRating, tomatoUserRating, BoxOffice, movieId, searchString, ratingMean, nRat, ratingMedian)
+
+# Convert Released column into date format, remove NAs, filter by 2005 or later movies and keep only movies with 'USA' in the country list
+mdata_info$Released <- dmy(mdata_info$Released)
+mdata_info <- filter(mdata_info, is.na(Released) == FALSE)
+mdata_info <- filter(mdata_info, Released >= '2005-01-01' & Released <= '2014-12-31')
+mdata_info <- filter(mdata_info, grepl("USA",Country) == TRUE)
+
+# Filter selected columns
+mdata_abbr <- select(mdata_info, imdbId, Title, Year, Released, searchString)
+  
+# Merge youtube views data with mdata
+str(ytubeViews)
+ytubedata <- merge(ytubeViews, mdata_abbr, by.x = "vidSearchString", by.y = "searchString")
+str(ytubedata)
+ytubedata <- mutate(ytubedata, titleLower = tolower(Title))
+ytubedata <- mutate(ytubedata, vidtitleLower = tolower(vidTitle))
+ytubedata <- mutate(ytubedata, titleCheck = grepl(titleLower, vidtitleLower))
+ytubedata2 <- filter(ytubedata, titleCheck == TRUE)
+
+nrow(filter(ytubedata, length(tolower(ytubedata$Title[35])) > 1))
+
+?grepl
+nrow(filter(ytubedata, titleCheck == FALSE))
+head(filter(ytubedata, titleCheck == FALSE), n = 30)
+
+```
+
+# Get IMDB weekend gross and budget data - no need to run again, just import cleaned up data set
+
+```{r}
+
+imdbFin2 <- read.csv("./outputs/imdbFin2.csv", stringsAsFactors = FALSE)
+
+#--------------------------------------------------------------------------------------
+
+getIMDbfin <- function(imdb_id){
+  url <- paste("http://www.imdb.com/title/", imdb_id, "/", sep = "")
+  raw <-  getURL(url,encoding="UTF-8") 
+  PARSED <- htmlParse(raw) #Format the html code
+  imdbId = imdb_id
+  finlines = tryCatch(paste(gsub("[^[:graph:]]","\\1",xpathSApply(PARSED, "//*[(@id = 'titleDetails')]", xmlValue)), collapse = "|"), error = function(e) NA)
+  data_frame(imdbId = imdbId, finlines = finlines)
+}
+
+getIMDbfin("tt1080016")
+
+imdb_s <- mdata_abbr %>% 
+  select(imdbId, Title) %>% 
+  sample_n(size = 30)
+
+imdbFin <- NULL
+
+for (i in 1:nrow(imdb_s)) {
+  imdbFin <- rbind(imdbFin, getIMDbfin(imdb_s$imdbId[i]))
+}
+
+for (i in 5619:nrow(mdata_abbr)) {
+  imdbFin <- rbind(imdbFin, getIMDbfin(mdata_abbr$imdbId[i]))
+}
+
+# skipped 5082, 5157, 5608, 5618
+
+imdbFin$finlines[5000]
+
+imdbFin <- mutate(imdbFin, ow = substr(finlines, regexpr("OpeningWeekend:", finlines, fixed = TRUE) + nchar("OpeningWeekend:"), regexpr("OpeningWeekend:", finlines, fixed = TRUE) + nchar("OpeningWeekend:") + 20))
+
+imdbFin <- mutate(imdbFin, budg = substr(finlines, regexpr("Budget:", finlines, fixed = TRUE) + nchar("Budget:"), regexpr("Budget:", finlines, fixed = TRUE) + nchar("Budget:") + 20))
+
+imdbFin <- mutate(imdbFin, gross = substr(finlines, regexpr("Gross:", finlines, fixed = TRUE) + nchar("Gross:"), regexpr("Gross:", finlines, fixed = TRUE) + nchar("Gross:") + 20))
+
+imdbFin$budg2 <- gsub("\\(","|",imdbFin$budg)
+imdbFin$ow2 <- gsub("\\(","|",imdbFin$ow)
+imdbFin$gross2 <- gsub("\\(","|",imdbFin$gross)
+
+#substr(imdbFin$gross2[5000],regexpr("\\$",imdbFin$gross2[5000])[1] + 1,regexpr("\\|",imdbFin$gross2[5000])[1] - 1)
+imdbFin <- mutate(imdbFin, ow3 = substr(imdbFin$ow2,regexpr("\\$",imdbFin$ow2) + 1,regexpr("\\|",imdbFin$ow2) - 1))
+imdbFin <- mutate(imdbFin, budg3 = substr(imdbFin$budg2,regexpr("\\$",imdbFin$budg2) + 1,regexpr("\\|",imdbFin$budg2) - 1))
+imdbFin <- mutate(imdbFin, gross3 = substr(imdbFin$gross2,regexpr("\\$",imdbFin$gross2) + 1,regexpr("\\|",imdbFin$gross2) - 1))
+
+# reorg tables/columns
+imdbFin <- select(imdbFin, imdbId, finlines, ow, budg, gross, ow2, budg2, gross2, ow3, budg3, gross3)
+imdbFin2 <- select(imdbFin, imdbId, ow3, budg3, gross3)
+
+# remove British Pound amounts
+imdbFin2 <- filter(imdbFin2, grepl("£",ow3) == FALSE)
+imdbFin2 <- filter(imdbFin2, grepl("£",gross3) == FALSE)
+imdbFin2 <- filter(imdbFin2, grepl("£",budg3) == FALSE)
+imdbFin2 <- filter(imdbFin2, ow3 != "")
+imdbFin2 <- unique(imdbFin2)
+
+#remove commas
+imdbFin2$ow4 <- as.numeric(gsub(",","",imdbFin2$ow3))
+imdbFin2$budg4 <- as.numeric(gsub(",","",imdbFin2$budg3))
+imdbFin2$gross4 <- as.numeric(gsub(",","",imdbFin2$gross3))
+
+# remove NA lines in ow and gross columns
+imdbFin2 <- filter(imdbFin2, ow4 != "")
+imdbFin2 <- select(imdbFin2, imdbId, ow4, budg4, gross4)
+summary(imdbFin2)
+
+# ------------------------------------------------------------------------------------
+
+```
+
+# Combine IMDB financials with the abbreviated movie data
+```{r}
+
+mdata_fin <- merge(imdbFin2, mdata_info, by = "imdbId")
+
+mdata_fin <- mdata_fin %>% 
+  rename(opening_weekend = ow4) %>% 
+  rename(budget_est = budg4) %>% 
+  rename(gross = gross4)
+
+summary(mdata_fin)
+
+ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = mdata_fin) + geom_jitter()
+
+```
+
+# Clean up YouTube Data
+
+```{r}
+ytubedata <- ytubedata %>% filter(Title != '1')
+ytubedata <- select(ytubedata, 10:11, 1, 3, 2, 14, 4:9, 12:13)
+head(ytubedata2)
+
+# Summarize youtube views data by movie
+ytubedata_sum <- ytubedata %>% 
+  group_by(imdbId, Title, vidSearchString) %>% 
+  summarise(viewCount = sum(viewCount), likeCount = sum(likeCount), dislikeCount = sum(dislikeCount), favCount = sum(favCount), commentCount = sum(commentCount)) %>% 
+  ungroup() %>% ungroup() %>% 
+  arrange(Title, imdbId)
+
+# Summarize youtube views for ytubedata2 dataset (titleCheck == TRUE), NOT USED in final analysis
+ytubedata_sum2 <- ytubedata2 %>% 
+  group_by(imdbId, Title, vidSearchString) %>% 
+  summarise(viewCount = sum(viewCount), likeCount = sum(likeCount), dislikeCount = sum(dislikeCount), favCount = sum(favCount), commentCount = sum(commentCount)) %>% 
+  ungroup() %>% ungroup() %>% 
+  arrange(Title, imdbId)
+
+str(ytubedata_sum)
+rm(ytubedata, ytubedata2, ytubedata_sum2, ytubeViews, mdata_abbr, mdata_info, imdbFin, imdbFin2)
+
+# Occasional backups
+write.csv(ytubedata, "ytubedata.csv", row.names=FALSE)
+write.csv(ytubedata2, "ytubedata_titleCheckFALSE.csv", row.names=FALSE)
+write.csv(ytubedata_sum2, "ytubedatasum_titleCheckFALSE.csv", row.names=FALSE)
+write.csv(mdata, "mdata.csv", row.names=FALSE)
+write.csv(mdata_abbr, "mdata_abbr.csv", row.names=FALSE)
+write.csv(mdata_fin, "mdata_fin.csv", row.names=FALSE)
+write.csv(mdata_info, "mdata_info.csv", row.names=FALSE)
+write.csv(imdbFin, "imdbFin-FINAL.csv", row.names=FALSE)
+write.csv(imdbFin2, "imdbFin2.csv", row.names=FALSE)
+write.csv(ytubeViews, "ytubeViews.csv", row.names=FALSE)
+```
+
+# Combine everything
+
+```{r}
+colnames(mdata_fin)
+colnames(ytubedata_sum)
+
+movies <- merge(mdata_fin, ytubedata_sum, by = "imdbId")
+movies <- mutate(movies, stringCheck = ifelse(vidSearchString == searchString, TRUE, FALSE))
+filter(movies, stringCheck == FALSE)
+
+movies$Title.y <- NULL
+movies <- rename(movies, title = Title.x)
+movies$stringCheck <- NULL
+movies$vidSearchString <- NULL
+movies$Language <- NULL
+movies$Country <- NULL
+
+
+# Convert char columns to numeric
+str(movies)
+movies$Year <- as.numeric(movies$Year)
+movies$Metascore <- as.numeric(movies$Metascore)
+movies$imdbRating <- as.numeric(movies$imdbRating)
+movies$tomatoMeter <- as.numeric(movies$tomatoMeter)
+movies$tomatoRating <- as.numeric(movies$tomatoRating)
+movies$tomatoUserRating <- as.numeric(movies$tomatoUserRating)
+
+colnames(mdata_fin)
+colnames(mdata)
+colnames(movies)
+paste(colnames(mdata), collapse = ", ")
+
+# Create cleaned up dataset
+movies <- merge(movies, select(mdata, imdbId, Actors, Plot, tomatoConsensus, gAct, gAdv, gAnim, gChi, gCom, gCri, gDocu, gDra, gFant, gFno, gHor, gMus, gMys, gRom, gSci, gThr, gWar, gWes, gNA, gTotal), by = 'imdbId')
+table(movies$Type)
+movies$Type <- NULL
+summary(movies)
+
+# Change "Runtime" character column to numeric
+head(movies$Runtime)
+movies$runtime <- gsub(" min","",movies$Runtime)
+movies$runtime <- as.numeric(movies$runtime)
+movies$Runtime <- NULL
+movies$BoxOffice <- NULL
+movies <- filter(movies, is.na(runtime) == FALSE)
+
+# Remove lines with NAs
+movies2 <- filter(movies, is.na(Metascore) == FALSE)
+movies2 <- filter(movies2, is.na(tomatoMeter) == FALSE)
+movies2 <- filter(movies2, is.na(tomatoRating) == FALSE)
+movies2 <- filter(movies2, is.na(tomatoUserRating) == FALSE)
+movies2 <- filter(movies2, is.na(tomatoUserRating) == FALSE)
+summary(movies2)
+
+# Extract MPAA Rating to separate columns
+filter(as.data.frame(table(movies2$Rated)), Freq != 0) # View freq dist of MPAA Ratings
+
+movies2 <- transform(movies2, ratedG = ifelse(Rated == "G", 1, 0))
+movies2 <- transform(movies2, ratedNA = ifelse(Rated == "N/A", 1, 0))
+movies2 <- transform(movies2, ratedNC17 = ifelse(Rated == "NC-17", 1, 0))
+movies2 <- transform(movies2, ratedNOTRATED = ifelse(Rated == "NOT RATED", 1, 0))
+movies2 <- transform(movies2, ratedPG = ifelse(Rated == "PG", 1, 0))
+movies2 <- transform(movies2, ratedPG13 = ifelse(Rated == "PG-13", 1, 0))
+movies2 <- transform(movies2, ratedR = ifelse(Rated == "R", 1, 0))
+movies2 <- transform(movies2, ratedTV14 = ifelse(Rated == "TV-14", 1, 0))
+movies2 <- transform(movies2, ratedTVMA = ifelse(Rated == "TV-MA", 1, 0))
+movies2 <- transform(movies2, ratedUNRATED = ifelse(Rated == "UNRATED", 1, 0))
+
+# Check sum against original distribution
+sum(movies2$ratedG)
+sum(movies2$ratedNA)
+sum(movies2$ratedNC17)
+sum(movies2$ratedNOTRATED)
+sum(movies2$ratedPG)
+sum(movies2$ratedPG13)
+sum(movies2$ratedR)
+sum(movies2$ratedTV14)
+sum(movies2$ratedTVMA)
+sum(movies2$ratedUNRATED)
+
+# Remove unused variables
+
+
+```
+
+# ANALYSIS
+
+# Libraries
+
+```{r}
+library(caTools)
+library(ROCR)
+library(mice)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggthemes)
+library(caret)
+library(e1071)
+library(class)
+library(tm)
+library(SnowballC)
+library(flexclust)
+```
+
+# Create empty data frame to capture analysis results & notes
+
+```{r}
+
+analysisResults <- data_frame(variable_name = character(0), variables_num = integer(0), accuracy_measure = character(0), accuracy = numeric(0), test_details = character(0))
+
+```
+
+
+# Regression 
+
+```{r}
+
+moviesLM <- lm(opening_weekend ~ Year + Rated + Metascore + imdbRating + tomatoMeter + tomatoRating + tomatoUserRating + ratingMean + nRat + ratingMedian + viewCount + likeCount + dislikeCount + favCount + commentCount + gAct + gAdv + gAnim + gChi + gCom + gCri + gDocu + gDra + gFant + gFno + gHor + gMus + gMys + gRom + gSci + gThr + gWar + gWes + gNA + gTotal + runtime, data = movies2)
+summary(moviesLM)
+
+analysisResults[1,] <- c("moviesLM", length(moviesLM$model), "Multiple R2", summary(moviesLM)$r.squared, "Linear Regression")
+
+moviesLM2 <- lm(opening_weekend ~ imdbRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + commentCount + gAct + gAdv + gAnim + gDocu + gDra + gFant + gSci + runtime + ratedG + ratedPG + ratedPG13, data = movies2)
+str(summary(moviesLM2)$terms.factors)
+
+analysisResults[2,] <- c("moviesLM2", length(moviesLM2$model), "Multiple R2",  summary(moviesLM2)$r.squared, "Linear Regression")
+
+```
+
+# Split Dataset into Train and Test
+
+```{r}
+set.seed(5249)
+split = sample.split(movies2$opening_weekend, SplitRatio = 0.70)
+moviesTrain <- subset(movies2, split == TRUE)
+moviesTest <- subset(movies2, split == FALSE)
+```
+
+# Back to Linear Regression
+
+```{r}
+moviesLM3 <- lm(opening_weekend ~ imdbRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + commentCount + gAct + gAdv + gAnim + gDocu + gDra + gFant + gSci + runtime + ratedG + ratedPG + ratedPG13, data = moviesTrain)
+summary(moviesLM3)
+
+predLM <- predict(moviesLM3, newdata = moviesTest)
+predLM
+
+SSE <- sum((predLM - moviesTest$opening_weekend)^2)
+SST <- sum((mean(moviesTrain$opening_weekend) - moviesTest$opening_weekend)^2)
+R2_lm = 1 - SSE/SST
+R2_lm
+
+analysisResults[3, ] <- c("moviesLM3", length(moviesLM3$model), "Calculated R2",  R2_lm, "Linear Regression on Training set")
+
+```
+
+# Bag of Words - Tomato Consensus
+
+```{r}
+
+corpusTC <- Corpus(VectorSource(movies2$tomatoConsensus))
+corpusTC <- tm_map(corpusTC, tolower)
+corpusTC <- tm_map(corpusTC, PlainTextDocument)
+corpusTC <- tm_map(corpusTC, removePunctuation)
+corpusTC <- tm_map(corpusTC, removeWords, stopwords("english"))
+corpusTC <- tm_map(corpusTC, stemDocument)
+
+corpusTC[[1]]$content
+
+freqTC <- DocumentTermMatrix(corpusTC)
+freqTC
+inspect(freqTC[1000:1005, 505:515])
+findFreqTerms(freqTC, lowfreq = 20)
+findFreqTerms(freqTC, lowfreq = 100)
+sparseTC <- removeSparseTerms(freqTC, 0.99)
+dataTC = as.data.frame(as.matrix(sparseTC))
+
+colnames(dataTC) <- make.names(colnames(dataTC))
+dataTC$opening_weekend <- movies2$opening_weekend
+dataTC$imdbId <- movies2$imdbId
+dataTC$imdbId <- NULL
+dataTC$imdbRating <- movies2$imdbRating 
+
+dataTC$tomatoUserRating <- movies2$tomatoUserRating
+dataTC$ratingMean <- movies2$ratingMean
+dataTC$nRat <- movies2$nRat
+dataTC$viewCount <- movies2$viewCount
+dataTC$dislikeCount <- movies2$dislikeCount
+dataTC$commentCount <- movies2$commentCount
+dataTC$gAct <- movies2$gAct
+dataTC$gAdv <- movies2$gAdv
+dataTC$gAnim <- movies2$gAnim
+dataTC$gDocu <- movies2$gDocu
+dataTC$gDra <- movies2$gDra
+dataTC$gFant <- movies2$gFant
+dataTC$gSci <- movies2$gSci
+dataTC$runtime <- movies2$runtime
+dataTC$ratedG <- movies2$ratedG
+dataTC$ratedPG <- movies2$ratedPG
+dataTC$ratedPG13 <- movies2$ratedPG13
+
+# Split into Training and Test datasets
+set.seed(5249)
+
+split = sample.split(dataTC$opening_weekend, SplitRatio = 0.7)
+trainTC <- subset(dataTC, split == TRUE)
+testTC <- subset(dataTC, split == FALSE)
+
+# Linear Regression
+
+TC_lm <- lm(opening_weekend ~ ., data = trainTC)
+summary(TC_lm)
+
+analysisResults[4, ] <- c("TC_lm", length(TC_lm$model), "Multiple R2",  summary(TC_lm)$r.squared, "Tomato Consensus - Bag of Words, Lin Regr, on Training Set")
+
+predTClm <- predict(TC_lm, newdata = testTC)
+SSE <- sum((predTClm - testTC$opening_weekend)^2)
+SST <- sum((mean(trainTC$opening_weekend) - testTC$opening_weekend)^2)
+R2_TClm = 1 - SSE/SST
+R2_TClm
+
+analysisResults[5, ] <- c("TC_lm", length(TC_lm$model), "Calculated R2",  R2_TClm, "Tomato Consensus - Bag of Words, Lin Regr, Pred. on Test Set")
+
+paste(colnames(trainTC), collapse = " + ")
+
+TC_lm2 <- lm(opening_weekend ~ act + action + adapt + ambiti + american + audienc + charact + charm + come + comedi + comic + compel + dark + debut + dialogu + director + drama + dull + end + enough + entertain + even + explor + famili + featur + feel + formula + franchis + fun + get + heart + horror + human + humor + impress + insight + laugh + less + likabl + like + live + make + man + mani + materi + may + might + much + narrat + new + offer + one + origin + over + pace + part + play + polit + power + predecessor + predict + premis + quit + remak + satir + satisfi + seem + set + sharp + smart + solid + sourc + still + stori + strong + success + suffer + surpris + sweet + take + talent + thank + that + thin + though + thrill + thriller + time + true + turn + twist + ultim + uneven + visual + wast + well + wellact + will + wit + work + world + imdbRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + commentCount + gAct + gAdv + gAnim + gDocu + gDra + gFant + gSci + runtime + ratedG + ratedPG + ratedPG13, data = trainTC)
+summary(TC_lm2)
+
+predTClm2 <- predict(TC_lm2, newdata = testTC)
+SSE <- sum((predTClm2 - testTC$opening_weekend)^2)
+SST <- sum((mean(trainTC$opening_weekend) - testTC$opening_weekend)^2)
+R2_TClm2 = 1 - SSE/SST
+R2_TClm2
+
+analysisResults[6, ] <- c("TC_lm2", length(TC_lm2$model), "Multiple R2",  summary(TC_lm2)$r.squared, "Tomato Consensus - Bag of Words, Lin Regr, on Training Set")
+analysisResults[7, ] <- c("TC_lm2", length(TC_lm2$model), "Calculated R2",  R2_TClm2, "Tomato Consensus - Bag of Words, Lin Regr, Pred. on Test Set")
+
+TC_lm3 <- lm(opening_weekend ~ compel + entertain + franchis + fun + human + impress + live + man + satisfi + seem + set + smart + sourc + success + surpris + turn + imdbRating + tomatoUserRating + nRat + viewCount + dislikeCount + commentCount + gAct + gAdv + gAnim + gDocu + gDra + gFant + gSci + runtime + ratedG + ratedPG + ratedPG13, data = trainTC)
+summary(TC_lm3)
+
+predTClm3 <- predict(TC_lm3, newdata = testTC)
+SSE <- sum((predTClm3 - testTC$opening_weekend)^2)
+SST <- sum((mean(trainTC$opening_weekend) - testTC$opening_weekend)^2)
+R2_TClm3 = 1 - SSE/SST
+R2_TClm3
+
+analysisResults[8, ] <- c("TC_lm3", length(TC_lm3$model), "Multiple R2",  summary(TC_lm3)$r.squared, "Tomato Consensus - Bag of Words, Lin Regr, on Training Set")
+analysisResults[9, ] <- c("TC_lm3", length(TC_lm3$model), "Calculated R2",  R2_TClm3, "Tomato Consensus - Bag of Words, Lin Regr, Pred. on Test Set")
+
+```
+
+# Bag of Words - Plot Summary
+
+```{r}
+
+corpusPS <- Corpus(VectorSource(movies2$Plot))
+corpusPS <- tm_map(corpusPS, tolower)
+corpusPS <- tm_map(corpusPS, PlainTextDocument)
+corpusPS <- tm_map(corpusPS, removePunctuation)
+corpusPS <- tm_map(corpusPS, removeWords, stopwords("english"))
+corpusPS <- tm_map(corpusPS, stemDocument)
+
+corpusPS[[1]]$content
+
+freqPS <- DocumentTermMatrix(corpusPS)
+freqPS
+inspect(freqPS[1000:1005, 505:515])
+findFreqTerms(freqPS, lowfreq = 20)
+findFreqTerms(freqPS, lowfreq = 100)
+sparsePS <- removeSparseTerms(freqPS, 0.985)
+dataPS = as.data.frame(as.matrix(sparsePS))
+
+colnames(dataPS) <- make.names(colnames(dataPS))
+dataPS$opening_weekend <- movies2$opening_weekend
+dataPS$imdbRating <- movies2$imdbRating 
+dataPS$tomatoUserRating <- movies2$tomatoUserRating
+dataPS$ratingMean <- movies2$ratingMean
+dataPS$nRat <- movies2$nRat
+dataPS$viewCount <- movies2$viewCount
+dataPS$dislikeCount <- movies2$dislikeCount
+dataPS$commentCount <- movies2$commentCount
+dataPS$gAct <- movies2$gAct
+dataPS$gAdv <- movies2$gAdv
+dataPS$gAnim <- movies2$gAnim
+dataPS$gDocu <- movies2$gDocu
+dataPS$gDra <- movies2$gDra
+dataPS$gFant <- movies2$gFant
+dataPS$gSci <- movies2$gSci
+dataPS$runtime <- movies2$runtime
+dataPS$ratedG <- movies2$ratedG
+dataPS$ratedPG <- movies2$ratedPG
+dataPS$ratedPG13 <- movies2$ratedPG13
+
+# Split into Training and Test datasets
+set.seed(5249)
+
+split = sample.split(dataPS$opening_weekend, SplitRatio = 0.7)
+trainPS <- subset(dataPS, split == TRUE)
+testPS <- subset(dataPS, split == FALSE)
+
+# Linear Regression
+
+PS_lm <- lm(opening_weekend ~ ., data = trainPS)
+summary(PS_lm)
+
+predPSlm <- predict(PS_lm, newdata = testPS)
+SSE <- sum((predPSlm - testPS$opening_weekend)^2)
+SST <- sum((mean(trainPS$opening_weekend) - testPS$opening_weekend)^2)
+R2_PSlm = 1 - SSE/SST
+R2_PSlm
+
+analysisResults[10, ] <- c("PS_lm", length(PS_lm$model), "Multiple R2",  summary(PS_lm)$r.squared, "Plot Summary - Bag of Words, Lin Regr, on Training Set")
+analysisResults[11, ] <- c("PS_lm", length(PS_lm$model), "Calculated R2",  R2_PSlm, "Plot Summary - Bag of Words, Lin Regr, Pred. on Test Set")
+
+paste(colnames(trainPS), collapse = " + ")
+
+PS_lm2 <- lm(opening_weekend ~ fight + human + learn + sister + team + war + young + imdbRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + commentCount + gAct + gAdv + gAnim + gDocu + gDra + gFant + gSci + runtime + ratedG + ratedPG + ratedPG13, data = trainPS)
+summary(PS_lm2)
+
+predPSlm2 <- predict(PS_lm2, newdata = testPS)
+SSE <- sum((predPSlm - testPS$opening_weekend)^2)
+SST <- sum((mean(trainPS$opening_weekend) - testPS$opening_weekend)^2)
+R2_PSlm2 = 1 - SSE/SST
+R2_PSlm2
+
+analysisResults[12, ] <- c("PS_lm2", length(PS_lm2$model), "Multiple R2",  summary(PS_lm2)$r.squared, "Plot Summary - Bag of Words, Lin Regr, on Training Set")
+analysisResults[13, ] <- c("PS_lm2", length(PS_lm2$model), "Calculated R2",  R2_PSlm2, "Plot Summary - Bag of Words, Lin Regr, Pred. on Test Set")
+
+```
+
+# Transform for clustering
+
+```{r}
+
+head(movies2)
+paste(colnames(movies2), collapse = ", ")
+
+movies_clustr <- select(movies2, opening_weekend, Metascore, imdbRating, tomatoMeter, tomatoRating, tomatoUserRating, ratingMean, ratingMedian, viewCount, likeCount, dislikeCount, commentCount, gAct, gAdv, gAnim, gChi, gCom, gCri, gDocu, gDra, gFant, gFno, gHor, gMus, gMys, gRom, gSci, gThr, gWar, gWes, gNA, gTotal, runtime, ratedG, ratedNA, ratedNC17, ratedNOTRATED, ratedPG, ratedPG13, ratedR, ratedTV14, ratedUNRATED, ratedTVMA)
+
+summary(movies_clustr)
+str(movies_clustr)
+
+movies_clustr <- mutate(movies_clustr, opening_weekend = opening_weekend / mean(opening_weekend))
+movies_clustr <- mutate(movies_clustr, Metascore = Metascore / mean(Metascore))
+movies_clustr <- mutate(movies_clustr, imdbRating = imdbRating / mean(imdbRating))
+movies_clustr <- mutate(movies_clustr, tomatoMeter = tomatoMeter / mean(tomatoMeter))
+movies_clustr <- mutate(movies_clustr, tomatoRating = tomatoRating / mean(tomatoRating))
+movies_clustr <- mutate(movies_clustr, tomatoUserRating = tomatoUserRating / mean(tomatoUserRating))
+movies_clustr <- mutate(movies_clustr, ratingMean = ratingMean / mean(ratingMean))
+movies_clustr <- mutate(movies_clustr, ratingMedian = ratingMedian / mean(ratingMedian))
+movies_clustr <- mutate(movies_clustr, viewCount = viewCount / mean(viewCount))
+movies_clustr <- mutate(movies_clustr, likeCount = likeCount / mean(likeCount))
+movies_clustr <- mutate(movies_clustr, dislikeCount = dislikeCount / mean(dislikeCount))
+movies_clustr <- mutate(movies_clustr, commentCount = commentCount / mean(commentCount))
+movies_clustr <- mutate(movies_clustr, runtime = runtime / mean(runtime))
+
+# Clustering
+
+movies_dist <- dist(movies_clustr[c(1:43)], method = "euclidean")
+movClust <- hclust(movies_dist, method = "ward.D")
+plot(movClust)
+rect.hclust(movClust, k=3, border = 'red')
+rect.hclust(movClust, k=4, border = 'blue')
+rect.hclust(movClust, k=5, border = 'green')
+
+movClust4 <- cutree(movClust, k = 4)
+
+# Create new dataset with cluster groups
+movies3 <- cbind(movies2, movClust4)
+movies3 <- rename(movies3, grp = movClust4)
+str(movies3)
+# or use this if redoing just the cluster analysis: movies3$grp <- movClust4
+
+# Split into Training and Test datasets
+set.seed(5249)
+split = sample.split(movies3$opening_weekend, SplitRatio = 0.7)
+trainClust <- subset(movies3, split == TRUE)
+testClust <- subset(movies3, split == FALSE)
+
+# Divide up training and test set by groups
+
+trainGrp1 <- subset(trainClust, grp == 1)
+trainGrp2 <- subset(trainClust, grp == 2)
+trainGrp3 <- subset(trainClust, grp == 3)
+trainGrp4 <- subset(trainClust, grp == 4)
+
+testGrp1 <- subset(testClust, grp == 1)
+testGrp2 <- subset(testClust, grp == 2)
+testGrp3 <- subset(testClust, grp == 3)
+testGrp4 <- subset(testClust, grp == 4)
+
+# Calculate average opening_weekend in each group
+
+tapply(trainClust$opening_weekend, trainClust$grp, mean)
+tapply(testClust$opening_weekend, testClust$grp, mean)
+
+# Linear regression on Grp 1
+cLM1 <- lm(opening_weekend ~ imdbRating + tomatoRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + gAct + gAdv + gAnim + gCom + gDocu + gDra + gFno + gHor + runtime, data = trainGrp1)
+summary(cLM1)
+
+predLM1 <- predict(cLM1, newdata=testGrp1)
+SSE <- sum((predLM1 - testGrp1$opening_weekend)^2)
+SST <- sum((mean(trainGrp1$opening_weekend) - testGrp1$opening_weekend)^2)
+R2_grp1 = 1 - SSE/SST
+R2_grp1
+
+analysisResults[14, ] <- c("cLM1", length(cLM1$model), "Multiple R2",  summary(cLM1)$r.squared, "Clustering, Lin Regr, on Training Set - Group 1")
+analysisResults[15, ] <- c("cLM1", length(cLM1$model), "Calculated R2", R2_grp1, "Clustering, Lin Regr, Pred. on Test Set - Group 1")
+
+# Linear regression on Grp 2
+cLM2 <- lm(opening_weekend ~ imdbRating + tomatoRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + gAct + gAdv + gAnim + gCom + gDocu + gDra + gFno + gHor + runtime, data = trainGrp2)
+summary(cLM2)
+
+predLM2 <- predict(cLM2, newdata=testGrp2)
+SSE <- sum((predLM2 - testGrp2$opening_weekend)^2)
+SST <- sum((mean(trainGrp2$opening_weekend) - testGrp2$opening_weekend)^2)
+R2_grp2 = 1 - SSE/SST
+R2_grp2
+
+analysisResults[16, ] <- c("cLM2", length(cLM2$model), "Multiple R2",  summary(cLM2)$r.squared, "Clustering, Lin Regr, on Training Set - Group 2")
+analysisResults[17, ] <- c("cLM2", length(cLM2$model), "Calculated R2", R2_grp2, "Clustering, Lin Regr, Pred. on Test Set - Group 2")
+
+# Linear regression on Grp 3
+cLM3 <- lm(opening_weekend ~ imdbRating + tomatoRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + gAct + gAdv + gAnim + gCom + gDocu + gDra + gFno + gHor + runtime, data = trainGrp3)
+summary(cLM3)
+
+predLM3 <- predict(cLM3, newdata=testGrp3)
+SSE <- sum((predLM3 - testGrp3$opening_weekend)^2)
+SST <- sum((mean(trainGrp3$opening_weekend) - testGrp3$opening_weekend)^2)
+R2_grp3 = 1 - SSE/SST
+R2_grp3
+
+analysisResults[18, ] <- c("cLM3", length(cLM3$model), "Multiple R2",  summary(cLM3)$r.squared, "Clustering, Lin Regr, on Training Set - Group 3")
+analysisResults[19, ] <- c("cLM3", length(cLM3$model), "Calculated R2", R2_grp3, "Clustering, Lin Regr, Pred. on Test Set - Group 3")
+
+# Linear regression on Grp 4
+cLM4 <- lm(opening_weekend ~ imdbRating + tomatoRating + tomatoUserRating + ratingMean + nRat + viewCount + dislikeCount + gAct + gAdv + gAnim + gCom + gDocu + gDra + gFno + gHor + runtime, data = trainGrp4)
+summary(cLM4)
+
+predLM4 <- predict(cLM4, newdata=testGrp4)
+SSE <- sum((predLM4 - testGrp4$opening_weekend)^2)
+SST <- sum((mean(trainGrp4$opening_weekend) - testGrp4$opening_weekend)^2)
+R2_grp4 = 1 - SSE/SST
+R2_grp4
+
+analysisResults[20, ] <- c("cLM4", length(cLM4$model), "Multiple R2",  summary(cLM4)$r.squared, "Clustering, Lin Regr, on Training Set - Group 4")
+analysisResults[21, ] <- c("cLM4", length(cLM4$model), "Calculated R2", R2_grp4, "Clustering, Lin Regr, Pred. on Test Set - Group 4")
+
+analysisResults
+
+# Write analysisResults to a table
+
+write.csv(analysisResults, "analysisResults.csv", row.names=FALSE)
+
+```
+
+# Visualizations
+
+```{r}
+
+################## OW vs Gross ##################
+p1 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = movies3) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Opening Weekend vs Gross (2005 - 2014)") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p2 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gAct == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Action") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p3 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gAdv == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Adventure") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p4 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gAnim == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Animation") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p5 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gCom == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Comedy") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p6 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gDocu == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Documentary") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p7 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gDra == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Drama") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p8 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gFant == 1 | gSci == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Fantasy + SciFi") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p9 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gMus == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Musical") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p10 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gRom == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Romance") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p11 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gThr == 1 | gMys == 1 | gHor == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "Thriller, Mystery, Horror") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+p12 <- ggplot(aes(x = opening_weekend/1000000, y = gross/1000000), data = subset(movies3, gWar == 1 | gWes == 1)) + geom_point() + labs(x = "Opening Weekend ($M)", y = "Gross Collections($M)", title = "War") + theme_gray() + coord_cartesian(xlim = c(0, 200), ylim = c(0, 600))
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, ncol = 3)
+
+################## Other charts ##################
+
+p1 <- ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = movies3) + geom_jitter() + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating") + theme_gray()
+p2 <- ggplot(aes(x = viewCount_adj/1000000, y = opening_weekend/1000000), data = subset(movies3, gAct == 1 | gAdv == 1)) + geom_point() + labs(y = "Opening Weekend ($M)", x = "YouTube Trailer Views (M)", title = "Action & Adventure Movies") + theme_gray()
+p3 <- ggplot(aes(x = Metascore, y = opening_weekend/1000000), data = movies3) + geom_point() + labs(y = "Opening Weekend ($M)", x = "Metascore", title = "Opening Weekend vs Metascore") + theme_gray()
+p4 <- ggplot(aes(x = likeCount/1000000, y = opening_weekend/1000000), data = movies3) + geom_point() + labs(y = "Opening Weekend ($M)", x = "YouTube Like Count (M)", title = "Opening Weekend vs YouTube Like Count") + theme_gray()
+p5 <- ggplot(aes(x = tomatoMeter, y = opening_weekend/1000000), data = movies3) + geom_point() + labs(x = "TomatoMeter rating", y = "Opening Weekend ($M)", title = "Opening Weekend vs Tomato Meter (Critic Rating)") + theme_gray()
+p6 <- ggplot(aes(x = tomatoUserRating, y = opening_weekend/1000000), data = movies3) + geom_jitter() + labs(x = "Tomato User rating", y = "Opening Weekend ($M)", title = "Opening Weekend vs Tomato User Rating") + theme_gray()
+p7 <- ggplot(aes(x = runtime, y = imdbRating), data = movies3) + geom_point() + labs(x = "Runtime (in Mins)", y = "Opening Weekend ($M)", title = "Movie Runtime vs IMDb Rating") + theme_gray()
+p8 <- ggplot(aes(x = runtime, y = tomatoMeter), data = movies3) + geom_point(aes(col = Rated)) + labs(x = "Runtime (in Mins)", y = "TomatoMeter", title = "Movie Runtime vs Tomato Meter") + theme_gray()
+p9 <- ggplot(aes(x = Year, fill = Rated), data = movies3) + geom_histogram(binwidth = 1, col = 'white') + labs(x = "Release year", y = "Count of Movies")
+p10 <- ggplot(aes(x = Rated), data = movies3) + geom_histogram(binwidth = 1, col = 'white') + labs(x = "MPAA rating", y = "Count of Movies", title = "Histogram of Movies by MPAA Rating")
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, ncol = 3)
+
+
+################## OW vs IMDb Rating ##################
+
+ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = subset(movies3,gAct == 1)) + geom_jitter() + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating for Movies (2005 - 2014)") + theme_gray()
+
+ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = subset(movies3,gAnim == 1 | gChi == 1)) + geom_jitter(aes(col = gAnim)) + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating for Movies (2005 - 2014)") + theme_gray()
+
+ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = subset(movies3,gFant == 1 | gSci == 1)) + geom_jitter() + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating for Movies (2005 - 2014)") + theme_gray()
+
+ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = subset(movies3,ratedR == 1)) + geom_jitter() + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating for Movies (2005 - 2014)") + theme_gray()
+
+ggplot(aes(x = imdbRating, y = opening_weekend/1000000), data = subset(movies3, grp == 2)) + geom_jitter() + labs(y = "Opening Weekend ($M)", x = "IMDb Rating", title = "Opening Weekend vs IMDb Rating for Movies (2005 - 2014)") + theme_gray()
+
+################## IMDb Ratings ##################
+p1 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gAct == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Action") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p2 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gAdv == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Adventure") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p3 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gAnim == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Animation") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p4 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gCom == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Comedy") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p5 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gDocu == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Documentary") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p6 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gDra == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Drama") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p7 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gFant == 1 | gSci == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Fantasy & SciFi") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p8 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gMus == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Musical") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p9 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gRom == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Romantic") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p10 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gThr == 1 | gMys == 1 | gHor == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Mystery / Thriller / Horror") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p11 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gWar == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "War") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+p12 = ggplot(aes(x = Rated, y = imdbRating), data = subset(movies3, gWes == 1)) + geom_boxplot() + labs(y = "IMDb Rating", title = "Westerns") + theme_gray() + coord_cartesian(ylim = c(0, 10))
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, ncol = 3)
+
+################## Movie runtimes ##################
+p1 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gAct == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Action") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p2 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gAdv == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Adventure") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p3 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gAnim == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Animation") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p4 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gCom == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Comedy") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p5 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gDocu == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Documentary") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p6 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gDra == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Drama") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p7 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gFant == 1 | gSci == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Fantasy & SciFi") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p8 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gMus == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Musical") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p9 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gRom == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Romantic") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p10 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gThr == 1 | gMys == 1 | gHor == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Mystery / Thriller / Horror") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p11 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gWar == 1)) + geom_boxplot() + labs(y = "Runtime", title = "War") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+p12 = ggplot(aes(x = Rated, y = runtime), data = subset(movies3, gWes == 1)) + geom_boxplot() + labs(y = "Runtime", title = "Westerns") + theme_gray() + coord_cartesian(ylim = c(50, 150))
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, ncol = 3)
+
+################## Opening Weekend Grosses ##################
+p1 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gAct == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Action") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p2 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gAdv == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Adventure") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p3 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gAnim == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Animation") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p4 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gCom == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Comedy") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p5 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gDocu == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Documentary") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p6 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gDra == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Drama") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p7 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gFant == 1 | gSci == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Fantasy & SciFi") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p8 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gMus == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Musical") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p9 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gRom == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Romantic") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p10 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gThr == 1 | gMys == 1 | gHor == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Mystery / Thriller / Horror") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p11 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gWar == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "War") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+p12 = ggplot(aes(x = Rated, y = opening_weekend/1000000), data = subset(movies3, gWes == 1)) + geom_boxplot() + labs(y = "Opening Weekend ($M)", title = "Westerns") + theme_gray() + coord_cartesian(ylim = c(0, 100))
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12, ncol = 3)
+
+# Number of movies released
+ggplot(aes(x = Released), data = movies3, stat = bin) + geom_histogram(aes(color = Rated))
+
+# Add Month Released and Week Released to dataset
+movies3 <- mutate(movies3, Month = month(Released))
+movies3 <- transform(movies3, Week = as.numeric(strftime(Released, "%U")))
+
+as.numeric(strftime("2015-09-03", "%U"))
+summary(movies3$Week)
+
+# Remove TV-MA and TV-14 MPAA Ratings
+movies3sub <- movies3 %>% 
+  subset(Rated != "TV-MA" & Rated != "TV-14")
+  
+################## Movie releases by MPAA rating ##################
+movies3sub %>% 
+  group_by(Week, Rated) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + facet_wrap(~ Rated)
+
+################## Movie released by Genre ##################
+p1 <- movies3sub %>% subset(gAct == 1 | gAdv == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Action & Adventure") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p2 <- movies3sub %>% subset(gAnim == 1 | gChi == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Animation & Children") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p3 <- movies3sub %>% subset(gCri == 1 | gThr == 1 | gMys == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Crime, Mystery, Thrillers") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p4 <- movies3sub %>% subset(gCom == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Comedy") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p5 <- movies3sub %>% subset(gWar == 1 | gWes == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "War & Westerns") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p6 <- movies3sub %>% subset(gDocu == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Documentary") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p7 <- movies3sub %>% subset(gDra == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Drama") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p8 <- movies3sub %>% subset(gRom == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Romance") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+p9 <- movies3sub %>% subset(gFant == 1 | gSci == 1) %>% group_by(Week) %>% 
+  summarise(medianCount = median(n())) %>% 
+  ggplot(aes(x = Week, y = medianCount)) + geom_line() + labs(x = "Week", y = "Median Count", title = "Fantasy & Sci-Fi") + scale_x_continuous(breaks = c(0,13, 26, 39, 52), labels = c("Jan","Apr","Jul","Oct","Dec")) + coord_cartesian(ylim = c(0, 40))
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, ncol = 3)
+
+filter(movies3, viewCount <= 3000000, opening_weekend >= 150000000)
+
+# Get internet growth stats to adjust Youtube Views for "inflation"
+internet_stats <- read.csv("./outputs/internet_growth.csv")
+internet_stats
+
+# Merge with main dataset and adjust Youtube Views
+movies3 <- merge(movies3, internet_stats, by = "Year")
+movies3$Internet.Users <- NULL
+movies3 <- mutate(movies3, viewCount_adj = viewCount / Inflation.Factor)
+movies3$Rated <- as.factor(movies3$Rated)
+
+# Occasional data backups
+
+filter(movies3, grepl("The Dark Knight Rises", title) == TRUE)
+movies[movies3$title == "The Dark Knight Rises",]
+write.csv(movies3[1535,], "TDKR.csv", row.names=FALSE)
+
+write.csv(movies3, "movies3_FINAL.csv", row.names=FALSE)
+
+```
+
