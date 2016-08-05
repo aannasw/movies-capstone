@@ -122,6 +122,12 @@ Box Office Mojo contains a few key pieces of data that aren't available consiste
 
 The process I used to get and clean this data involved multiple passes in R and a lot of relying on Excel and Excel formulas for a few cheats here and there, so a clear workflow isn't currently available for me to upload here. Stay tuned.
 
-### Thoughts and next steps
+
+## Thoughts and next steps
+
 If you've read this far, thank you for visiting and I hope you enjoy the visualizations and analysis. Feel free to initiate a conversation or send me your suggestions / comments / struggles with getting IMDb data via my website http://artiannaswamy.com
+
+#### More analysis and writeups related to the above
+
+Data story on Shorthand: [How many Screens do you need for a Blockbuster movie?](http://soc.sh/n2IqhVcpTf)
 
