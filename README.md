@@ -1,8 +1,19 @@
-# movies-capstone
-Foundations of Data Science Capstone Project - Analysis of Opening Weekend Grosses for Movies released in USA (2005 - 2014)
+# Movies Capstone Project
+Springboard's Foundations of Data Science Workshop https://www.springboard.com/workshops/data-science
+
+Analysis of Opening Weekend Grosses for Movies released in USA (2005 - 2014)
 
 #### Software/Tech Info
+
 Primarily R and APIs, but also some Python and SQL. This also necessitated hastily acquired knowledge of installing SQLObject ORM and installing and working with a SQLite database. The Python and SQL proved ultimately unnecessary for the purpose it was used for (see the section below on IMDbPy), but it was good practice.
+- R Studio
+- R packages like 
+  - XML, RCurl, scrapeR, rjson, RJSONIO for data collecting
+  - dplyr, stringr, tidyr, lubridate for data wrangling
+  - ggplot2, ggthemes, gridExtra for visualization
+  - caTools, ROCR, mice, rpart, rpart.plot, randomForest, caret, e1071, class, tm, SnowballC, flexclust for analysis
+- APIs like OMDb, YouTube Search, YouTube Get
+- Python, SQLite etc
 
 #### Data sources
 
@@ -99,3 +110,13 @@ Apparently using the IMDbPY files and scripts queries the website directly, givi
 And finally, lacking any other way of getting movie financial data from IMDb, I wrote a scraper in R that collects the financial info for a pre-cleaned, pre-filtered dataset. Since this data isn't consistently available on IMDb, they have not designated very specific html/xml formatting for this data and as a result, the data still downloads as a chunk. Further `gsub` and `substring` magic is required to extract the 'Opening Weekend:', 'Gross:' and 'Budget:' numbers from the text chunk.
 
 See `IMDb scraper.R` for more info.
+
+#### 6. Box Office Mojo Scraper
+
+Box Office Mojo contains a few key pieces of data that aren't available consistently on IMDb - namely, opening weekend box office, daily collections, # of screens released, and best of all, inflation-adjusted opening weekend numbers and the flexibility to set the year you'd like to track against i.e. 2005 opening weekend numbers in today's dollars.
+
+The process I used to get and clean this data involved multiple passes in R and a lot of relying on Excel and Excel formulas for a few cheats here and there, so a clear workflow isn't currently available for me to upload here. Stay tuned.
+
+### Thoughts and next steps
+If you've read this far, thank you for visiting and I hope you enjoy the visualizations and analysis. Feel free to initiate a conversation or send me your suggestions / comments / struggles with getting IMDb data via my website http://artiannaswamy.com
+
