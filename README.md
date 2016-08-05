@@ -3,7 +3,7 @@ Springboard's Foundations of Data Science Workshop https://www.springboard.com/w
 
 Analysis of Opening Weekend Grosses for Movies released in USA (2005 - 2014)
 
-#### Project Report
+#### Capstone Project Report - [click here to view](https://github.com/aannasw/movies-capstone/blob/master/Capstone%20Project.pdf)
 ![Slide 4 - Data Sources](https://github.com/aannasw/movies-capstone/blob/master/assets/slide04_Data.png?raw=true)
 ![Slide 18 - Text Analysis](https://github.com/aannasw/movies-capstone/blob/master/assets/slide18_TextAnalysis.png?raw=true)
 ![Slide 23 - Per-Screen Averages](https://github.com/aannasw/movies-capstone/blob/master/assets/slide23_Screens.png?raw=true)
